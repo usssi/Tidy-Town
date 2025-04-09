@@ -1,23 +1,23 @@
-// UpgradeStationUI.cs MODIFICADO
 using UnityEngine;
 using TMPro;
+using System.Globalization;
 
 public class UpgradeStationUI : MonoBehaviour
 {
     public UpgradeType stationUpgradeType;
-    public GameObject infoTextObject; // Asigna el objeto hijo con TextMeshPro
+    public GameObject infoTextObject;
 
     private TextMeshPro textMeshComponent;
     private UpgradeManager upgradeManager;
-    private PlayerStats playerStats; // Referencia para buscar
+    private PlayerStats playerStats;
     private string affordableColor = "green";
     private string unaffordableColor = "red";
+    private CultureInfo numberFormatCulture = new CultureInfo("en-US");
 
     void Start()
     {
-        // Busca las referencias una vez
         upgradeManager = FindObjectOfType<UpgradeManager>();
-        playerStats = FindObjectOfType<PlayerStats>(); // Encuentra al jugador
+        playerStats = FindObjectOfType<PlayerStats>();
 
         if (infoTextObject != null)
         {
@@ -25,16 +25,16 @@ public class UpgradeStationUI : MonoBehaviour
             if (textMeshComponent != null)
             {
                 textMeshComponent.richText = true;
-                infoTextObject.SetActive(true); // Activar al inicio
+                infoTextObject.SetActive(true);
             }
             else
             {
-                infoTextObject.SetActive(false); // Desactivar si no hay texto
+                infoTextObject.SetActive(false);
             }
         }
         if (upgradeManager == null || playerStats == null || textMeshComponent == null)
         {
-            enabled = false; // Desactivar script si falta algo
+            enabled = false;
             if (infoTextObject != null) infoTextObject.SetActive(false);
             return;
         }
@@ -42,20 +42,19 @@ public class UpgradeStationUI : MonoBehaviour
 
     void Update()
     {
-        // Actualizar constantemente el texto
         UpdateTextContent();
     }
 
     private void UpdateTextContent()
     {
-        // Las comprobaciones null ahora están en Start
         int currentLevel = upgradeManager.GetCurrentLevel(stationUpgradeType);
         int cost = upgradeManager.GetUpgradeCost(stationUpgradeType);
         bool canAfford = playerStats.money >= cost;
 
         string line1 = $"Lvl {currentLevel}";
         string effectString = "";
-        string costString = $"${cost}";
+        string formattedCost = cost.ToString("N0", numberFormatCulture);
+        string costString = $"${formattedCost}";
 
         switch (stationUpgradeType)
         {
@@ -65,7 +64,7 @@ public class UpgradeStationUI : MonoBehaviour
                 break;
             case UpgradeType.Capacity:
                 int nextCapacity = upgradeManager.CalculateCapacityForLevel(playerStats, currentLevel + 1);
-                effectString = $"{nextCapacity}";
+                effectString = nextCapacity.ToString("N0", numberFormatCulture);
                 break;
             case UpgradeType.Radius:
                 float nextRadius = upgradeManager.CalculateRadiusForLevel(playerStats, currentLevel + 1);
@@ -78,7 +77,4 @@ public class UpgradeStationUI : MonoBehaviour
 
         textMeshComponent.text = line1 + "\n" + line2;
     }
-
-    // HideText ya no es necesaria si siempre está visible
-    // public void HideText() { ... }
 }

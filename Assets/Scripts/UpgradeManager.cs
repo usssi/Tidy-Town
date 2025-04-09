@@ -1,4 +1,6 @@
 using UnityEngine;
+using TMPro;
+using System.Globalization;
 
 public enum UpgradeType
 {
@@ -12,27 +14,26 @@ public class UpgradeManager : MonoBehaviour
     [Header("References")]
     public TrashSpawner trashSpawnerReference;
     private CameraController cameraController;
+    private PlayerStats playerStatsInstance;
 
     [Space(10)]
     [Header("Spawner Scaling (Linked to Upgrades)")]
-    [Tooltip("Initial maximum number of trash items allowed on screen at once (Affected by Capacity)")]
     public int baseMaxTrashSpawnCount = 10;
-    [Tooltip("Initial time between trash spawns (Affected by Speed)")]
     public float baseSpawnInterval = 3.0f;
-    // Removed spawnIntervalReductionPerSpeedLevel & intervalReductionPerOtherUpgrade
-    [Tooltip("Exponential decay factor (0-1). Lower = faster decay. ~0.835 targets ~0.1s @ Lvl 20")]
     public float spawnIntervalDecayFactor = 0.835f;
-    [Tooltip("The theoretical minimum interval the decay approaches")]
     public float spawnIntervalTargetMin = 0.01f;
-    [Tooltip("The absolute minimum practical time between spawns")]
     public float minSpawnInterval = 0.1f;
-    [Tooltip("Base number of items spawned each time (at Radius Level 0-4)")]
-    public int baseItemsToSpawn = 1; // Should likely be removed if not used by spawner logic anymore
+    public int baseItemsToSpawn = 1;
 
     [Space(10)]
     [Header("Camera Scaling (Linked to Radius Upgrade)")]
     public float baseOrthographicSize = 7f;
     public float orthoSizeIncreasePerRadiusLevel = 0.5f;
+
+    [Space(10)]
+    [Header("Self Transform Scaling (Linked to Radius Upgrade)")]
+    public float selfScaleIncreasePerRadiusLevel = 0.3f;
+    public float selfPositionYIncreasePerRadiusLevel = 0.3f;
 
     [Space(10)]
     [Header("Speed Upgrade Config")]
@@ -46,10 +47,13 @@ public class UpgradeManager : MonoBehaviour
     public float capacityCostTriangularFactor = 25f;
 
     [Space(10)]
-    [Header("Radius Upgrade Config (Player Pickup)")]
+    [Header("Radius Upgrade Config (Player)")] // Encabezado actualizado
     public int radiusBaseCost = 24;
     public float radiusCostTriangularFactor = 35f;
-    public float radiusBaseIncrease = 0.5f;
+    [Tooltip("How much the Player's TRASH pickup radius increases per Radius Level.")]
+    public float radiusBaseIncrease = 0.5f; // Ahora solo para pickup
+    [Tooltip("How much the Player's STATION interaction radius increases per Radius Level.")]
+    public float stationInteractRadiusIncreasePerLevel = 0.1f; // Nueva variable específica
 
     [HideInInspector] public int speedLevel = 0;
     [HideInInspector] public int capacityLevel = 0;
@@ -57,6 +61,8 @@ public class UpgradeManager : MonoBehaviour
 
     private Camera mainCamera;
     private float initialCameraY;
+    private Vector3 initialPosition;
+    private Vector3 initialScale;
 
     void Start()
     {
@@ -65,6 +71,13 @@ public class UpgradeManager : MonoBehaviour
         {
             initialCameraY = mainCamera.transform.position.y;
             cameraController = mainCamera.GetComponent<CameraController>();
+        }
+        initialPosition = transform.position;
+        initialScale = transform.localScale;
+        playerStatsInstance = FindObjectOfType<PlayerStats>();
+        if (playerStatsInstance == null)
+        {
+            Debug.LogError("UpgradeManager could not find PlayerStats instance in the scene!");
         }
         InitializeSystems();
     }
@@ -75,10 +88,11 @@ public class UpgradeManager : MonoBehaviour
         {
             trashSpawnerReference.maxTrashCount = CalculateMaxTrashCountForLevel(capacityLevel);
             UpdateSpawnInterval();
-            // Removed setting itemsToSpawnPerInterval (Spawner calculates it)
             trashSpawnerReference.UpdateSpawnTiming();
         }
         UpdateCameraState();
+        UpdateSelfTransformState();
+        UpdatePlayerRadii(playerStatsInstance);
     }
 
     void UpdateCameraState()
@@ -90,6 +104,17 @@ public class UpgradeManager : MonoBehaviour
         cameraController.SetTargetCameraState(targetOrthoSize, targetCameraY);
     }
 
+    void UpdateSelfTransformState()
+    {
+        Vector3 scaleIncreaseVector = new Vector3(selfScaleIncreasePerRadiusLevel, selfScaleIncreasePerRadiusLevel, selfScaleIncreasePerRadiusLevel);
+        Vector3 targetScale = initialScale + scaleIncreaseVector * radiusLevel;
+
+        Vector3 targetPosition = new Vector3(initialPosition.x, initialPosition.y + selfPositionYIncreasePerRadiusLevel * radiusLevel, initialPosition.z);
+
+        transform.localScale = targetScale;
+        transform.position = targetPosition;
+    }
+
     void UpdateSpawnInterval()
     {
         if (trashSpawnerReference == null) return;
@@ -98,6 +123,13 @@ public class UpgradeManager : MonoBehaviour
         float decayPower = Mathf.Pow(spawnIntervalDecayFactor, level);
         float calculatedInterval = spawnIntervalTargetMin + span * decayPower;
         trashSpawnerReference.spawnInterval = Mathf.Max(minSpawnInterval, calculatedInterval);
+    }
+
+    void UpdatePlayerRadii(PlayerStats stats)
+    {
+        if (stats == null) return;
+        stats.trashPickupRadius = stats.basePickupRadius + radiusBaseIncrease * radiusLevel;
+        stats.stationInteractRadius = stats.baseStationInteractRadius + stationInteractRadiusIncreasePerLevel * radiusLevel; // Usa la nueva variable
     }
 
     public int GetCurrentLevel(UpgradeType type)
@@ -141,6 +173,8 @@ public class UpgradeManager : MonoBehaviour
 
         bool needsIntervalUpdate = false;
         bool needsCameraUpdate = false;
+        bool needsSelfTransformUpdate = false;
+        bool needsPlayerRadiiUpdate = false;
 
         switch (type)
         {
@@ -158,9 +192,9 @@ public class UpgradeManager : MonoBehaviour
                 break;
             case UpgradeType.Radius:
                 radiusLevel++;
-                playerStats.trashPickupRadius = playerStats.basePickupRadius + radiusBaseIncrease * radiusLevel;
-                // Spawner calculates itemsToSpawn itself based on radiusLevel now
+                needsPlayerRadiiUpdate = true;
                 needsCameraUpdate = true;
+                needsSelfTransformUpdate = true;
                 break;
         }
 
@@ -173,6 +207,14 @@ public class UpgradeManager : MonoBehaviour
         if (needsCameraUpdate)
         {
             UpdateCameraState();
+        }
+        if (needsSelfTransformUpdate)
+        {
+            UpdateSelfTransformState();
+        }
+        if (needsPlayerRadiiUpdate)
+        {
+            UpdatePlayerRadii(playerStats);
         }
 
         return true;

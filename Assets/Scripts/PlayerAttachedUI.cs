@@ -1,33 +1,33 @@
 using UnityEngine;
-using TMPro; // Asegúrate de tener esto
+using TMPro;
+using System.Globalization;
 
 public class PlayerAttachedUI : MonoBehaviour
 {
-    public TextMeshPro textMeshComponent; // Asigna el objeto TextMeshPro hijo aquí
-    public Color defaultColor = Color.white; // Color normal del texto
-    public Color fullColor = Color.red; // Color cuando está lleno
+    public TextMeshPro textMeshComponent;
+    public Color defaultColor = Color.white;
+    public Color fullColor = Color.red;
 
     private PlayerStats playerStats;
+    private CultureInfo numberFormatCulture = new CultureInfo("en-US");
 
     void Start()
     {
-        // Busca PlayerStats en el objeto padre
         playerStats = GetComponentInParent<PlayerStats>();
-        // Busca el componente de texto si no está asignado
+
         if (textMeshComponent == null)
         {
             textMeshComponent = GetComponentInChildren<TextMeshPro>();
         }
 
-        // Comprobación inicial de seguridad y color
         if (playerStats == null || textMeshComponent == null)
         {
-            enabled = false; // Desactiva el script si falta algo
+            enabled = false;
             if (textMeshComponent != null) textMeshComponent.gameObject.SetActive(false);
         }
         else
         {
-            textMeshComponent.color = defaultColor; // Establece color inicial
+            textMeshComponent.color = defaultColor;
         }
     }
 
@@ -35,10 +35,10 @@ public class PlayerAttachedUI : MonoBehaviour
     {
         if (playerStats != null && textMeshComponent != null)
         {
-            // Actualiza el contenido del texto
-            textMeshComponent.text = playerStats.currentTrash + "/" + playerStats.maxTrashCapacity;
+            string formattedCurrent = playerStats.currentTrash.ToString("N0", numberFormatCulture);
+            string formattedMax = playerStats.maxTrashCapacity.ToString("N0", numberFormatCulture);
+            textMeshComponent.text = formattedCurrent + "/" + formattedMax;
 
-            // Comprueba si el inventario está lleno y cambia el color
             if (playerStats.currentTrash >= playerStats.maxTrashCapacity)
             {
                 textMeshComponent.color = fullColor;
