@@ -51,7 +51,7 @@ public class PlayerMovement : MonoBehaviour
     void FixedUpdate()
     {
         if (playerStats == null) return;
-        rb.velocity = moveInput * moveSpeed * playerStats.moveSpeedMultiplier;
+        rb.linearVelocity = moveInput * moveSpeed * playerStats.moveSpeedMultiplier;
     }
 
     void LateUpdate()
