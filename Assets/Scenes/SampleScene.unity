@@ -366,6 +366,7 @@ MonoBehaviour:
   - {fileID: 8302714565644667035, guid: fa607eab7411c3e42aaa4cb58f6a9059, type: 3}
   - {fileID: 8302714565644667035, guid: 5f85bd06983245a43b6f371efa9318be, type: 3}
   - {fileID: 8302714565644667035, guid: e901abad419ed544ba3ddafede8ed3df, type: 3}
+  - {fileID: 8302714565644667035, guid: 6c51cba345f40a840b9c6d9aab55ad07, type: 3}
   spawnInterval: 3
   maxTrashCount: 10
   baseNoSpawnMarginHeight: 6
