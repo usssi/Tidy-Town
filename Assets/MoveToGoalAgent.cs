@@ -2,54 +2,94 @@ using UnityEngine;
 using Unity.MLAgents;
 using Unity.MLAgents.Actuators;
 using Unity.MLAgents.Sensors;
+using System.Linq;
+using TMPro;
 
 [RequireComponent(typeof(Rigidbody2D))]
 [RequireComponent(typeof(Collider2D))]
 public class MoveToGoalAgent : Agent
 {
     [SerializeField] private Transform targetTransform;
-    private float previousDistance;
     private Rigidbody2D rb;
     private Camera mainCamera;
     private Collider2D agentCollider;
+    private float previousDistance = float.MaxValue;
+    private AudioManager audioManager;
+    private UpgradeManager upgradeManager;
 
-    [Space]
-    public Color winColor;
-    public Color loseColor;
+    [Header("Reward Settings")]
+    public float goalReward = 10f;
+    public float boundaryPenalty = -1.0f;
+    // Removed fixed stepPenalty
+    [Tooltip("Initial step penalty magnitude at step 0 (positive value)")]
+    public float baseStepPenalty = 0.001f; // Base penalty magnitude
+    [Tooltip("How much penalty increases each step (e.g., 0.00001)")]
+    public float penaltyIncreaseFactor = 0.00001f; // Increase per step
+    public float distanceRewardScaleFactor = 0.1f;
+    public float distanceRewardEpsilon = 0.1f;
+    public float timeoutPenalty = -1.0f;
+
+    [Header("Debug Colors")]
+    public Color winColor = Color.green;
+    public Color loseColor = Color.red;
+    public string trashTag = "Trash";
+
+    [Header("Debugging UI")]
+    public TextMeshProUGUI rewardDebugText;
 
     public override void Initialize()
     {
         rb = GetComponent<Rigidbody2D>();
         agentCollider = GetComponent<Collider2D>();
         mainCamera = Camera.main;
-        if (rb != null) rb.gravityScale = 0;
-        if (mainCamera == null || agentCollider == null)
+        audioManager = FindFirstObjectByType<AudioManager>();
+        upgradeManager = FindFirstObjectByType<UpgradeManager>();
+
+        if (rb == null || agentCollider == null || mainCamera == null || audioManager == null || upgradeManager == null)
         {
-            Debug.LogError("Agent needs a Collider2D and a Main Camera must exist!", gameObject);
             enabled = false;
+            return;
         }
+        rb.gravityScale = 0;
+        UpdateRewardUI();
     }
 
     public override void OnEpisodeBegin()
     {
         transform.localPosition = Vector3.zero;
-        GameObject targetObj = GameObject.FindGameObjectWithTag("Trash");
-        if (targetObj != null)
+        if (rb != null) rb.linearVelocity = Vector2.zero;
+        targetTransform = null;
+        previousDistance = float.MaxValue;
+
+        GameObject[] trashObjects = GameObject.FindGameObjectsWithTag(trashTag);
+        GameObject closestTrash = null;
+        if (trashObjects.Length > 0)
         {
-            targetTransform = targetObj.transform;
+            closestTrash = trashObjects.OrderBy(t => Vector3.Distance(transform.localPosition, t.transform.localPosition)).FirstOrDefault();
         }
-        else
+        if (closestTrash != null)
         {
-            targetTransform = null;
+            targetTransform = closestTrash.transform;
+            previousDistance = Vector3.Distance(transform.localPosition, targetTransform.localPosition);
         }
+        UpdateRewardUI();
     }
 
     public override void CollectObservations(VectorSensor sensor)
     {
-        sensor.AddObservation(transform.localPosition);
+        if (rb != null)
+        {
+            sensor.AddObservation(rb.linearVelocity.x);
+            sensor.AddObservation(rb.linearVelocity.y);
+        }
+        else
+        {
+            sensor.AddObservation(0f);
+            sensor.AddObservation(0f);
+        }
         if (targetTransform != null)
         {
-            sensor.AddObservation(targetTransform.localPosition);
+            sensor.AddObservation(targetTransform.localPosition - transform.localPosition);
         }
         else
         {
@@ -71,28 +111,70 @@ public class MoveToGoalAgent : Agent
 
     void FixedUpdate()
     {
-        AddReward(-0.003f);
+        // Calculate and apply increasing step penalty
+        if (MaxStep > 0)
+        { // Only apply if MaxStep is set
+            float currentPenaltyMagnitude = baseStepPenalty + (penaltyIncreaseFactor * StepCount);
+            AddReward(-currentPenaltyMagnitude); // Apply as negative reward
+        }
 
-        // En FixedUpdate, necesitarías guardar la distancia anterior
-        float distanceNow = Vector3.Distance(transform.localPosition, targetTransform.localPosition);
-        float rewardForDistance = previousDistance - distanceNow; // Positivo si te acercas
-        AddReward(rewardForDistance * 0.01f); // Factor pequeño
-        previousDistance = distanceNow;
+        // Apply reward based on inverse distance to target
+        if (targetTransform != null)
+        {
+            float distanceNow = Vector3.Distance(transform.localPosition, targetTransform.localPosition);
+            float distanceReward = distanceRewardScaleFactor * (1.0f / (distanceNow + distanceRewardEpsilon));
+            AddReward(distanceReward);
+            // Removed previousDistance check for reward shaping
+        }
+        else
+        {
+            GameObject[] trashObjects = GameObject.FindGameObjectsWithTag(trashTag);
+            GameObject closestTrash = null;
+            if (trashObjects.Length > 0)
+            {
+                closestTrash = trashObjects.OrderBy(t => Vector3.Distance(transform.localPosition, t.transform.localPosition)).FirstOrDefault();
+            }
+            if (closestTrash != null)
+            {
+                targetTransform = closestTrash.transform;
+                previousDistance = Vector3.Distance(transform.localPosition, targetTransform.localPosition);
+            }
+        }
 
+        CheckForTimeout();
         CheckBoundaries();
+        UpdateRewardUI();
+    }
+
+    void UpdateRewardUI()
+    {
+        if (rewardDebugText != null)
+        {
+            rewardDebugText.text = $"Reward: {GetCumulativeReward():F3}";
+        }
+    }
+
+    void CheckForTimeout()
+    {
+        if (MaxStep > 0 && StepCount >= MaxStep - 1)
+        {
+            SetReward(timeoutPenalty);
+            audioManager.Play("noMoney", 1);
+            UpdateRewardUI();
+            if (mainCamera != null) mainCamera.backgroundColor = loseColor;
+            EndEpisode();
+        }
     }
 
     private void CheckBoundaries()
     {
+        if (!this.gameObject.activeInHierarchy || !this.enabled) return;
         if (mainCamera == null || agentCollider == null) return;
-
         Vector2 agentExtents = agentCollider.bounds.extents;
         Vector3 currentPos = transform.position;
-
         float camNearClipPlane = mainCamera.nearClipPlane;
         Vector3 viewBottomLeft = mainCamera.ViewportToWorldPoint(new Vector3(0, 0, camNearClipPlane));
         Vector3 viewTopRight = mainCamera.ViewportToWorldPoint(new Vector3(1, 1, camNearClipPlane));
-
         bool isOutOfBounds =
             currentPos.x < viewBottomLeft.x + agentExtents.x ||
             currentPos.x > viewTopRight.x - agentExtents.x ||
@@ -101,8 +183,10 @@ public class MoveToGoalAgent : Agent
 
         if (isOutOfBounds)
         {
-            SetReward(-1.0f);
-            mainCamera.backgroundColor = loseColor;
+            SetReward(boundaryPenalty);
+            audioManager.Play("noMoney", 1);
+            UpdateRewardUI();
+            if (mainCamera != null) mainCamera.backgroundColor = loseColor;
             EndEpisode();
         }
     }
@@ -116,10 +200,14 @@ public class MoveToGoalAgent : Agent
 
     private void OnTriggerEnter2D(Collider2D collision)
     {
-        if (collision.CompareTag("Trash"))
+        if (targetTransform != null && collision.transform == targetTransform)
         {
-            SetReward(1f);
-            mainCamera.backgroundColor = winColor;
+            Destroy(targetTransform.gameObject);
+            SetReward(goalReward);
+            audioManager.Play("clean", 1);
+            UpdateRewardUI();
+            if (mainCamera != null) mainCamera.backgroundColor = winColor;
+
             EndEpisode();
         }
     }
